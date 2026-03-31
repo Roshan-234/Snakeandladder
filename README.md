@@ -1,67 +1,101 @@
-# 🎲 Snake & Ladder — Online Multiplayer
+# Snake & Ladder — Online Multiplayer with Chaos Snake AI
 
-A beautiful online multiplayer Snake & Ladder game with physics-based animations, 3D dice, particle effects, and real-time multiplayer via WebSockets.
+A production-grade online multiplayer Snake & Ladder game featuring a **Greedy Dynamic Chaos Snake** algorithm, physics-based animations, 3D dice, synthesized sound effects, and real-time WebSocket multiplayer.
 
 ## Features
 
-- **2-4 Player Online Multiplayer** — Create a room, share the code, play with friends
-- **Spring Physics Tokens** — Pieces move with realistic spring dynamics (overshoot + settle)
-- **3D CSS Dice** — Full 3D cube with physics-based rolling animation
-- **Particle Effects** — Confetti on wins, sparks on ladders, venom on snakes
-- **SVG Snakes & Ladders** — Glowing bezier-curve snakes and ladder rungs drawn on the board
-- **Real-time Sync** — Socket.IO powers instant state updates
-- **Responsive** — Works on desktop and mobile
-- **Game Rules** — Extra turn on 6, exact roll to win, snake/ladder animations
+### Gameplay
+- **2-4 Player Online Multiplayer** — Room-based with shareable codes
+- **Greedy Chaos Snake AI** — A dynamic snake that uses a greedy algorithm to hunt the leading player, creating Mario Kart "blue shell" rubber-banding
+- **Classic Rules** — Extra turn on 6, exact roll to win, 10 static snakes + 9 ladders
+- **Real-time Sync** — Socket.IO WebSocket for instant state updates
+
+### Chaos Snake Algorithm
+The Chaos Snake activates when any player passes cell 25. It repositions every turn:
+1. Identifies the leading player (highest position)
+2. Places its head 2-7 cells **ahead** of the leader (greedy lookahead)
+3. Drops victims 18-35 cells back (significant penalty)
+4. Avoids existing snakes, ladders, and occupied cells
+5. Deactivates near the finish line (cell 94+) for fair final stretches
+
+### Audio & Visual
+- **Synthesized Sound Effects** — Dice shake/land, snake hiss + sad trombone, ladder chime, chaos snake alarm, win fanfare (all Web Audio API, zero external files)
+- **Spring Physics** — Tokens move with realistic overshoot/settle dynamics
+- **3D CSS Dice** — Full perspective cube with physics-based deceleration
+- **Canvas Particle Effects** — Confetti, sparks, and explosions on game events
+- **SVG Snake & Ladder Overlays** — Glowing bezier-curve paths with animated snake eyes
+- **Fancy Board** — Jewel-tone gradients, gold accents, pulsing chaos snake cells
+
+### Technical
+- **Mobile Responsive** — Full viewport scaling with `min()`, safe-area-inset support, touch-optimized
+- **Zero Dependencies Frontend** — Pure vanilla JS client, no build step
+- **Sequenced Animation Pipeline** — Dice → pause → move → snake/ladder → chaos reposition
 
 ## Quick Start
 
 ```bash
-# Install dependencies
+git clone <your-repo-url>
+cd snake-ladder-online
 npm install
-
-# Start the server
 npm start
 ```
 
-Then open `http://localhost:3000` in your browser.
-
-## How to Play
-
-1. Enter your name and click **Create Room**
-2. Share the **5-letter room code** with friends
-3. Friends open the same URL and click **Join** with the code
-4. Host clicks **Start Game** when everyone's in
-5. Take turns clicking the dice to roll!
+Open `http://localhost:3000` — share the URL with friends!
 
 ## Deployment
 
-### Deploy to Railway / Render / Fly.io
+### Render (Recommended — Free Tier)
+1. Push to GitHub
+2. Go to [render.com](https://render.com) → New → Web Service
+3. Connect repo → it auto-detects `render.yaml`
+4. Deploy → get your URL
 
-1. Push this folder to a GitHub repo
-2. Connect the repo to your hosting platform
-3. Set the start command to `npm start`
-4. Deploy — that's it!
-
-### Deploy to Heroku
-
+### Railway
 ```bash
-heroku create my-snake-ladder
-git push heroku main
+# Install Railway CLI, then:
+railway init
+railway up
 ```
 
-### Deploy with Docker
-
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install --production
-COPY . .
-EXPOSE 3000
-CMD ["node", "server.js"]
+### Docker
+```bash
+docker build -t snake-ladder .
+docker run -p 3000:3000 snake-ladder
 ```
 
-### Environment Variables
+### Fly.io
+```bash
+fly launch
+fly deploy
+```
+
+### Any Node.js Host
+Set start command to `node server.js` and ensure port `$PORT` or `3000` is exposed.
+
+## How to Play
+
+1. Enter your name → **Create Room**
+2. Share the **5-letter code** with friends
+3. Friends visit same URL → enter code → **Join**
+4. Host clicks **Start Game**
+5. Tap the 3D dice on your turn!
+6. Watch out for the **Chaos Snake** (purple, pulsing) — it targets whoever's winning!
+
+## Project Structure
+
+```
+snake-ladder-online/
+├── server.js          # Express + Socket.IO + Chaos Snake algorithm
+├── package.json       # Dependencies & scripts
+├── Dockerfile         # Container deployment
+├── render.yaml        # Render auto-deploy config
+├── .gitignore
+├── README.md
+└── public/
+    └── index.html     # Complete game client (single file, no build)
+```
+
+## Environment
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -69,22 +103,11 @@ CMD ["node", "server.js"]
 
 ## Tech Stack
 
-- **Backend**: Node.js + Express + Socket.IO
-- **Frontend**: Vanilla JS (no build step needed)
-- **Physics**: Custom spring dynamics engine
-- **Graphics**: CSS 3D transforms, SVG, Canvas particles
-
-## Project Structure
-
-```
-snake-ladder-online/
-├── server.js          # Express + Socket.IO server
-├── package.json       # Dependencies
-├── README.md          # This file
-└── public/
-    └── index.html     # Full game client (single file)
-```
+- **Server**: Node.js 20+ / Express / Socket.IO 4
+- **Client**: Vanilla JS / Web Audio API / CSS 3D / Canvas
+- **Physics**: Custom spring dynamics (stiffness=140, damping=15)
+- **AI**: Greedy lookahead algorithm with randomized positioning
 
 ## License
 
-MIT — use it however you want!
+MIT
