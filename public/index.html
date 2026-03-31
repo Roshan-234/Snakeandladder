@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Snake & Ladder — Online Multiplayer</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Fira+Code:wght@400;700&family=DM+Sans:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow-x:hidden}
+body{
+  font-family:'DM Sans',sans-serif;color:#fff;
+  background:linear-gradient(165deg,#060610 0%,#0c0c22 40%,#081520 100%);
+  min-height:100vh;
+}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes glow{0%,100%{opacity:.6}50%{opacity:1}}
+@keyframes shake{0%{transform:rotate(-8deg) scale(1.08)}100%{transform:rotate(8deg) scale(1.12)}}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+input:focus{border-color:rgba(255,170,0,.5)!important;outline:none}
+button{font-family:'DM Sans',sans-serif;transition:all .15s;cursor:pointer}
+button:active{transform:scale(.97)}
+
+.page{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px}
+.card{background:rgba(255,255,255,.025);backdrop-filter:blur(20px);border-radius:20px;padding:36px 30px;max-width:400px;width:100%;border:1px solid rgba(255,255,255,.06);box-shadow:0 24px 80px rgba(0,0,0,.6)}
+.title{font-size:30px;font-weight:900;font-family:'Playfair Display',serif;background:linear-gradient(135deg,#FF2D55,#FF9500,#34C759,#007AFF);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.label{color:rgba(255,255,255,.4);font-size:11px;font-weight:700;display:block;margin-bottom:8px;letter-spacing:1px}
+.inp{width:100%;padding:12px 16px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#fff;font-size:15px;font-family:'DM Sans',sans-serif;outline:none}
+.btn{padding:13px 20px;border-radius:12px;border:none;font-size:15px;font-weight:800}
+.btn-a{background:linear-gradient(135deg,#FF2D55,#FF9500);color:#fff;box-shadow:0 4px 20px rgba(255,45,85,.35)}
+.btn-b{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.15)}
+.error{margin-top:12px;padding:8px 14px;border-radius:8px;background:rgba(255,45,85,.1);border:1px solid rgba(255,45,85,.2);color:#FF2D55;font-size:13px;font-weight:600;text-align:center}
+
+.dice-scene{width:82px;height:82px;perspective:350px;cursor:pointer}
+.dice-scene.disabled{opacity:.35;cursor:not-allowed}
+.dice-cube{width:68px;height:68px;position:relative;margin:7px;transform-style:preserve-3d;transition:transform 1s cubic-bezier(.22,1,.36,1)}
+.dice-cube.rolling{transition:none}
+.dice-face{position:absolute;width:68px;height:68px;background:linear-gradient(145deg,#fefefe,#e3e3e3);border-radius:9px;display:flex;align-items:center;justify-content:center;backface-visibility:hidden;box-shadow:inset 0 0 6px rgba(0,0,0,.05)}
+.dice-face svg circle{fill:#1a1a2e}
+.f1{transform:rotateY(0deg) translateZ(34px)}.f2{transform:rotateX(-90deg) translateZ(34px)}
+.f3{transform:rotateY(-90deg) translateZ(34px)}.f4{transform:rotateY(90deg) translateZ(34px)}
+.f5{transform:rotateX(90deg) translateZ(34px)}.f6{transform:rotateY(180deg) translateZ(34px)}
+
+.board{position:relative;border-radius:8px;overflow:hidden;transition:border-color .5s}
+.cell{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.cell-num{font-weight:800;font-family:'Fira Code',monospace}
+.token{position:absolute;border-radius:50%;border:2.5px solid rgba(255,255,255,.85);display:flex;align-items:center;justify-content:center;font-weight:900;text-shadow:0 1px 3px rgba(0,0,0,.5);z-index:15;transition:transform .3s cubic-bezier(.34,1.56,.64,1),box-shadow .3s}
+.token.bounce{transform:scale(1.25)!important}
+
+.player-pill{flex:1;min-width:65px;padding:5px 7px;border-radius:8px;transition:all .3s}
+.win-overlay{position:absolute;inset:0;z-index:50;background:rgba(0,0,0,.72);backdrop-filter:blur(5px);display:flex;flex-direction:column;align-items:center;justify-content:center;animation:fadeIn .5s ease}
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+/* ═══════════════════════ CONSTANTS ═══════════════════════ */
+const BOARD_SIZE = 10, TOTAL = 100;
+const SNAKES = {16:6,47:26,49:11,56:53,62:19,64:60,87:24,93:73,95:75,98:78};
+const LADDERS = {1:38,4:14,9:31,21:42,28:84,36:44,51:67,71:91,80:100};
+const COLORS = [
+  {bg:'#FF2D55',glow:'#ff5c7f',light:'#ff9db5',name:'Ruby'},
+  {bg:'#34C759',glow:'#5dd97a',light:'#a8edb8',name:'Jade'},
+  {bg:'#FF9500',glow:'#ffb040',light:'#ffd699',name:'Amber'},
+  {bg:'#007AFF',glow:'#3d9bff',light:'#99c8ff',name:'Azure'},
+];
+const TOKENS = ['\u2655','\u2658','\u2656','\u265D'];
+const FACE_DOTS = [null,[[50,50]],[[28,28],[72,72]],[[28,28],[50,50],[72,72]],
+  [[28,28],[72,28],[28,72],[72,72]],[[28,28],[72,28],[50,50],[28,72],[72,72]],
+  [[28,28],[72,28],[28,50],[72,50],[28,72],[72,72]]];
+const TARGET_ROT = [null,[0,0],[0,180],[0,90],[0,-90],[-90,0],[90,0]];
+
+/* ═══════════════════════ PHYSICS ═══════════════════════ */
+class Spring {
+  constructor(k=140,d=15,m=1){this.k=k;this.d=d;this.m=m;this.pos=0;this.vel=0;this.target=0;this.settled=true}
+  setTarget(t){this.target=t;this.settled=false}
+  step(dt){
+    const f=-this.k*(this.pos-this.target),dm=-this.d*this.vel;
+    this.vel+=((f+dm)/this.m)*dt;this.pos+=this.vel*dt;
+    if(Math.abs(this.pos-this.target)<.4&&Math.abs(this.vel)<.5){this.pos=this.target;this.vel=0;this.settled=true}
+    return this.pos;
+  }
+}
+class Particle {
+  constructor(x,y,color,opts={}){
+    this.x=x;this.y=y;this.color=color;
+    this.vx=(Math.random()-.5)*(opts.spread||6);
+    this.vy=-(Math.random()*(opts.upForce||5)+2);
+    this.gravity=opts.gravity??.15;this.life=1;this.decay=.012+Math.random()*.018;
+    this.size=opts.size||(2+Math.random()*3);this.shape=opts.shape||'circle';
+    this.rot=Math.random()*360;this.rotS=(Math.random()-.5)*12;
+  }
+  update(){this.vy+=this.gravity;this.x+=this.vx;this.y+=this.vy;this.life-=this.decay;this.rot+=this.rotS;return this.life>0}
+}
+
+/* ═══════════════════════ BOARD MATH ═══════════════════════ */
+function getRC(pos){const p=pos-1,r=Math.floor(p/BOARD_SIZE);return{row:BOARD_SIZE-1-r,col:r%2===0?p%BOARD_SIZE:BOARD_SIZE-1-p%BOARD_SIZE}}
+function cc(pos,cs){const{row,col}=getRC(pos);return{x:col*cs+cs/2,y:row*cs+cs/2}}
+
+/* ═══════════════════════ APP STATE ═══════════════════════ */
+let socket, state=null, screen='menu', myName='', roomCode='', joinCode='', err='',
+    rolling=false, diceVal=1, msg='', cellSize=52;
+const particles=[];
+const tokenSprings=[[new Spring(),new Spring()],[new Spring(),new Spring()],
+                     [new Spring(),new Spring()],[new Spring(),new Spring()]];
+const tokenPos=[{x:-100,y:-100},{x:-100,y:-100},{x:-100,y:-100},{x:-100,y:-100}];
+const tokenBounce=[false,false,false,false];
+const prevPositions=[0,0,0,0];
+
+function resize(){
+  cellSize=Math.floor(Math.min(window.innerWidth-24,560)/BOARD_SIZE);
+  render();
+}
+window.addEventListener('resize',resize);
+
+function cellColor(n){
+  const{row,col}=getRC(n);const e=(row+col)%2===0;
+  if(SNAKES[n])return e?'#2a0f18':'#331420';
+  if(LADDERS[n])return e?'#0f2a18':'#143320';
+  return e?'#141e36':'#111a2e';
+}
+
+/* ═══════════════════════ PARTICLE RENDERER ═══════════════════════ */
+let pCanvas, pCtx;
+function initParticleCanvas(w,h){
+  pCanvas=document.getElementById('particle-canvas');
+  if(!pCanvas)return;
+  pCanvas.width=w;pCanvas.height=h;
+  pCtx=pCanvas.getContext('2d');
+}
+function drawParticles(){
+  if(!pCtx)return;
+  pCtx.clearRect(0,0,pCanvas.width,pCanvas.height);
+  for(let i=particles.length-1;i>=0;i--){
+    if(!particles[i].update()){particles.splice(i,1);continue}
+    const p=particles[i];
+    pCtx.globalAlpha=Math.max(0,p.life);pCtx.fillStyle=p.color;
+    pCtx.save();pCtx.translate(p.x,p.y);pCtx.rotate(p.rot*Math.PI/180);
+    if(p.shape==='star'){
+      pCtx.beginPath();
+      for(let j=0;j<5;j++){const a=j*4*Math.PI/5-Math.PI/2;pCtx[j===0?'moveTo':'lineTo'](Math.cos(a)*p.size,Math.sin(a)*p.size)}
+      pCtx.closePath();pCtx.fill();
+    }else if(p.shape==='rect'){pCtx.fillRect(-p.size,-p.size*.5,p.size*2,p.size)}
+    else{pCtx.beginPath();pCtx.arc(0,0,p.size,0,Math.PI*2);pCtx.fill()}
+    pCtx.restore();
+  }
+  pCtx.globalAlpha=1;
+}
+function emit(x,y,col,count=20,opts={}){for(let i=0;i<count;i++)particles.push(new Particle(x,y,col,opts))}
+
+/* ═══════════════════════ SPRING ANIMATION ═══════════════════════ */
+function animTokens(){
+  if(!state||state.phase==='lobby')return;
+  state.players.forEach((p,i)=>{
+    if(p.pos===0)return;
+    const same=state.players.filter(pp=>pp.pos===p.pos&&pp.pos>0);
+    const idx=same.indexOf(p);
+    const offsets=[{x:0,y:0},{x:cellSize*.16,y:-cellSize*.1},{x:-cellSize*.16,y:cellSize*.1},{x:cellSize*.1,y:cellSize*.14}];
+    const off=same.length>1?(offsets[idx]||offsets[0]):{x:0,y:0};
+    const{x,y}=cc(p.pos,cellSize);
+    const tx=x+off.x,ty=y+off.y;
+    const[sx,sy]=tokenSprings[i];
+
+    if(prevPositions[i]===0&&p.pos>0){sx.pos=tx;sy.pos=ty;sx.target=tx;sy.target=ty;tokenPos[i]={x:tx,y:ty};prevPositions[i]=p.pos;return}
+    if(prevPositions[i]!==p.pos){
+      sx.setTarget(tx);sy.setTarget(ty);
+      tokenBounce[i]=true;setTimeout(()=>{tokenBounce[i]=false},500);
+      prevPositions[i]=p.pos;
+    }
+    sx.step(1/60);sy.step(1/60);
+    tokenPos[i]={x:sx.pos,y:sy.pos};
+  });
+}
+
+/* ═══════════════════════ MAIN LOOP ═══════════════════════ */
+function gameLoop(){
+  animTokens();drawParticles();updateTokenDOM();
+  requestAnimationFrame(gameLoop);
+}
+requestAnimationFrame(gameLoop);
+
+function updateTokenDOM(){
+  if(!state)return;
+  state.players.forEach((p,i)=>{
+    const el=document.getElementById(`token-${i}`);
+    if(!el)return;
+    if(p.pos===0){el.style.display='none';return}
+    el.style.display='flex';
+    const sz=cellSize*.34;
+    el.style.width=sz+'px';el.style.height=sz+'px';
+    el.style.left=(tokenPos[i].x-sz/2)+'px';
+    el.style.top=(tokenPos[i].y-sz/2)+'px';
+    el.style.fontSize=(sz*.48)+'px';
+    el.style.background=`radial-gradient(circle at 35% 30%,${COLORS[i].light},${COLORS[i].bg})`;
+    el.style.boxShadow=`0 0 ${tokenBounce[i]?20:8}px ${COLORS[i].bg}88, 0 3px 8px rgba(0,0,0,.4)`;
+    if(tokenBounce[i])el.classList.add('bounce');else el.classList.remove('bounce');
+  });
+}
+
+/* ═══════════════════════ DICE ═══════════════════════ */
+let diceTimeout;
+function animateDice(finalVal,cb){
+  rolling=true;render();
+  let step=0;
+  const tick=()=>{
+    step++;
+    const cube=document.querySelector('.dice-cube');
+    if(cube){cube.classList.add('rolling');cube.style.transform=`rotateX(${Math.random()*720-360}deg) rotateY(${Math.random()*720-360}deg)`}
+    if(step<16)diceTimeout=setTimeout(tick,35+step*10);
+    else{
+      const[tx,ty]=TARGET_ROT[finalVal]||[0,0];
+      if(cube){cube.classList.remove('rolling');cube.style.transform=`rotateX(${tx+720}deg) rotateY(${ty+720}deg)`}
+      diceVal=finalVal;
+      setTimeout(()=>{rolling=false;if(cb)cb()},900);
+    }
+  };
+  tick();
+}
+
+/* ═══════════════════════ SOCKET ═══════════════════════ */
+function connectSocket(){
+  socket=io();
+  socket.on('state-update',s=>{state=s;render()});
+  socket.on('dice-rolled',data=>{
+    if(data.event==='snake'){
+      setTimeout(()=>{const c=cc(data.final,cellSize);emit(c.x,c.y,'#ff2255',30,{spread:8,upForce:6})},900);
+    }else if(data.event==='ladder'){
+      setTimeout(()=>{const c=cc(data.final,cellSize);emit(c.x,c.y,'#44ff88',35,{spread:5,upForce:8,shape:'star'})},900);
+    }
+    if(state&&state.phase==='finished'){
+      for(let i=0;i<10;i++)setTimeout(()=>emit(Math.random()*cellSize*BOARD_SIZE,Math.random()*cellSize*BOARD_SIZE*.4,
+        ['#FFD700','#FF2D55','#34C759','#007AFF','#FF9500'][i%5],18,{spread:10,upForce:9,shape:['star','circle','rect'][i%3]}),i*180);
+    }
+  });
+  socket.on('player-left',d=>{msg=`${d.name} left the room`;render()});
+  socket.on('player-disconnected',d=>{msg=`${d.name} disconnected`;render()});
+}
+
+/* ═══════════════════════ ACTIONS ═══════════════════════ */
+function createRoom(){
+  myName=document.getElementById('name-input')?.value?.trim()||'';
+  if(!myName){err='Enter your name!';render();return}
+  err='';
+  if(!socket)connectSocket();
+  socket.emit('create-room',{name:myName},res=>{
+    if(!res.ok){err=res.error||'Failed';render();return}
+    roomCode=res.code;state=res.state;screen='lobby';render();
+  });
+}
+function joinRoom(){
+  myName=document.getElementById('name-input')?.value?.trim()||'';
+  joinCode=document.getElementById('join-input')?.value?.trim()?.toUpperCase()||'';
+  if(!myName){err='Enter your name!';render();return}
+  if(joinCode.length<4){err='Enter valid room code!';render();return}
+  err='';
+  if(!socket)connectSocket();
+  socket.emit('join-room',{code:joinCode,name:myName},res=>{
+    if(!res.ok){err=res.error||'Failed';render();return}
+    roomCode=res.code;state=res.state;screen='lobby';render();
+  });
+}
+function startGame(){
+  socket.emit('start-game',{code:roomCode},res=>{
+    if(!res.ok){err=res.error||'Failed';render();return}
+    screen='game';msg='';render();
+  });
+}
+function rollDice(){
+  if(rolling||!state||state.phase!=='playing')return;
+  const me=state.players[state.turn];
+  if(!me||me.id!==socket.id)return;
+  socket.emit('roll-dice',{code:roomCode},res=>{
+    if(!res.ok)return;
+    animateDice(res.roll,()=>render());
+  });
+}
+function playAgain(){socket.emit('play-again',{code:roomCode})}
+function leaveGame(){screen='menu';state=null;roomCode='';msg='';err='';render()}
+
+/* ═══════════════════════ RENDER ═══════════════════════ */
+function render(){
+  const app=document.getElementById('app');
+  const bp=cellSize*BOARD_SIZE;
+
+  if(state?.phase==='playing'&&screen==='lobby'){screen='game'}
+
+  if(screen==='menu'){
+    app.innerHTML=`
+    <div class="page">
+      <div class="card">
+        <div style="text-align:center;margin-bottom:28px">
+          <div style="font-size:56px;margin-bottom:4px;animation:bob 2.5s ease-in-out infinite">🎲</div>
+          <h1 class="title">Snake & Ladder</h1>
+          <p style="color:rgba(255,255,255,.3);font-size:13px;margin-top:6px">Online Multiplayer with Physics</p>
+        </div>
+        <label class="label">YOUR NAME</label>
+        <input id="name-input" class="inp" placeholder="Enter name..." maxlength="16" value="${myName}">
+        <button class="btn btn-a" style="width:100%;margin-top:16px" onclick="createRoom()">Create Room</button>
+        <div style="text-align:center;margin:20px 0;border-top:1px solid rgba(255,255,255,.06);position:relative;line-height:0">
+          <span style="background:#0c0c22;padding:0 12px;position:relative;top:-1px;font-size:11px;font-weight:700;color:rgba(255,255,255,.2);letter-spacing:2px">OR JOIN</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <input id="join-input" class="inp" placeholder="CODE" maxlength="6" value="${joinCode}"
+            style="flex:1;text-align:center;letter-spacing:4px;font-weight:800;font-size:20px;font-family:'Fira Code',monospace">
+          <button class="btn btn-b" style="padding:0 24px" onclick="joinRoom()">Join</button>
+        </div>
+        ${err?`<div class="error">${err}</div>`:''}
+        <p style="margin-top:20px;text-align:center;color:rgba(255,255,255,.2);font-size:12px">Share the room code with friends to play online</p>
+      </div>
+    </div>`;
+    return;
+  }
+
+  if(screen==='lobby'){
+    const isHost=state?.host===socket?.id;
+    const players=state?.players||[];
+    app.innerHTML=`
+    <div class="page">
+      <div class="card" style="max-width:440px">
+        <h2 style="font-size:24px;font-weight:900;font-family:'Playfair Display',serif;text-align:center;margin-bottom:16px">Game Lobby</h2>
+        <div style="background:rgba(255,170,0,.08);border:2px dashed rgba(255,170,0,.25);border-radius:14px;padding:14px 20px;text-align:center;margin-bottom:18px">
+          <div style="font-size:10px;color:rgba(255,255,255,.35);font-weight:700;margin-bottom:4px;letter-spacing:1px">SHARE THIS CODE</div>
+          <div style="font-size:34px;font-weight:900;letter-spacing:8px;font-family:'Fira Code',monospace;color:#FFAA00;text-shadow:0 0 20px rgba(255,170,0,.4)">${roomCode}</div>
+        </div>
+        <div style="font-size:11px;color:rgba(255,255,255,.35);font-weight:700;margin-bottom:8px">PLAYERS (${players.length}/4)</div>
+        ${players.map((p,i)=>`
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;
+            background:${p.id===socket?.id?COLORS[i].bg+'15':'rgba(255,255,255,.02)'};
+            border:1.5px solid ${p.id===socket?.id?COLORS[i].bg+'44':'rgba(255,255,255,.05)'};margin-bottom:5px">
+            <div style="width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 35% 30%,${COLORS[i].light},${COLORS[i].bg});
+              display:flex;align-items:center;justify-content:center;font-size:15px;color:#fff;font-weight:900;
+              box-shadow:0 0 10px ${COLORS[i].bg}55">${TOKENS[i]}</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:${COLORS[i].bg}">${p.name}${p.id===socket?.id?' <span style="opacity:.4;font-size:10px">(you)</span>':''}</div>
+              ${p.id===state.host?'<div style="font-size:9px;color:rgba(255,255,255,.25);font-weight:700">HOST</div>':''}
+            </div>
+          </div>`).join('')}
+        ${Array.from({length:4-players.length}).map(()=>'<div style="padding:9px 12px;border-radius:10px;margin-bottom:5px;border:1.5px dashed rgba(255,255,255,.06);color:rgba(255,255,255,.12);font-size:12px;text-align:center">Waiting for player...</div>').join('')}
+        ${isHost?`<button class="btn btn-a" style="width:100%;margin-top:12px;opacity:${players.length<2?.4:1}" onclick="startGame()" ${players.length<2?'disabled':''}>Start Game${players.length<2?' (need 2+)':''}</button>`
+        :'<div style="text-align:center;color:rgba(255,255,255,.3);font-size:13px;padding:14px;animation:glow 2s infinite">Waiting for host to start...</div>'}
+        ${err?`<div class="error">${err}</div>`:''}
+      </div>
+    </div>`;
+    return;
+  }
+
+  // ═══════════ GAME SCREEN ═══════════
+  if(!state)return;
+  const cp=state.turn,cpC=COLORS[cp]||COLORS[0];
+  const isMe=state.players[cp]?.id===socket?.id;
+  const fin=state.phase==='finished';
+
+  let boardHTML='';
+  for(let i=1;i<=TOTAL;i++){
+    const{row,col}=getRC(i);
+    const isS=!!SNAKES[i],isL=!!LADDERS[i];
+    boardHTML+=`<div class="cell" style="left:${col*cellSize}px;top:${row*cellSize}px;width:${cellSize}px;height:${cellSize}px;
+      background:${cellColor(i)};border-right:1px solid rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.03)">
+      <span class="cell-num" style="font-size:${cellSize*.19}px;color:${isS?'#ff335566':isL?'#33ff6666':'rgba(255,255,255,.18)'}">${i}</span>
+      ${isS||isL?`<span style="font-size:${cellSize*.16}px;line-height:1;margin-top:-1px">${isS?'🐍':'🪜'}</span>`:''}
+    </div>`;
+  }
+
+  // SVG overlay
+  let svgHTML=`<svg width="${bp}" height="${bp}" style="position:absolute;top:0;left:0;pointer-events:none;z-index:3">
+    <defs>
+      <filter id="gS"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <filter id="gL"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <linearGradient id="sg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ff2255"/><stop offset="100%" stop-color="#ff6644"/></linearGradient>
+      <linearGradient id="lg2" x1="0%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#22cc66"/><stop offset="100%" stop-color="#88ff44"/></linearGradient>
+    </defs>`;
+  Object.entries(SNAKES).forEach(([h,t])=>{
+    const a=cc(+h,cellSize),b=cc(+t,cellSize),dx=b.x-a.x,dy=b.y-a.y;
+    svgHTML+=`<g filter="url(#gS)"><path d="M${a.x},${a.y} C${a.x+dx*.15-cellSize*.7},${a.y+dy*.35} ${a.x+dx*.85+cellSize*.5},${a.y+dy*.65} ${b.x},${b.y}" stroke="url(#sg)" stroke-width="7" fill="none" opacity=".45" stroke-linecap="round"/>
+    <path d="M${a.x},${a.y} C${a.x+dx*.15-cellSize*.7},${a.y+dy*.35} ${a.x+dx*.85+cellSize*.5},${a.y+dy*.65} ${b.x},${b.y}" stroke="url(#sg)" stroke-width="2.5" fill="none" opacity=".7" stroke-linecap="round" stroke-dasharray="3 5"/>
+    <circle cx="${a.x}" cy="${a.y}" r="6" fill="#ff2255" opacity=".75"/>
+    <circle cx="${a.x-2.5}" cy="${a.y-2.5}" r="1.5" fill="#fff" opacity=".8"/><circle cx="${a.x+2.5}" cy="${a.y-2.5}" r="1.5" fill="#fff" opacity=".8"/></g>`;
+  });
+  Object.entries(LADDERS).forEach(([b2,t2])=>{
+    const a=cc(+b2,cellSize),z=cc(+t2,cellSize),dx=z.x-a.x,dy=z.y-a.y;
+    const len=Math.sqrt(dx*dx+dy*dy),nx=(-dy/len)*cellSize*.14,ny=(dx/len)*cellSize*.14;
+    let rungs='';for(let i=0;i<5;i++){const t3=(i+1)/6,mx=a.x+dx*t3,my=a.y+dy*t3;
+      rungs+=`<line x1="${mx+nx}" y1="${my+ny}" x2="${mx-nx}" y2="${my-ny}" stroke="url(#lg2)" stroke-width="2" opacity=".4" stroke-linecap="round"/>`}
+    svgHTML+=`<g filter="url(#gL)"><line x1="${a.x+nx}" y1="${a.y+ny}" x2="${z.x+nx}" y2="${z.y+ny}" stroke="url(#lg2)" stroke-width="3" opacity=".5" stroke-linecap="round"/>
+    <line x1="${a.x-nx}" y1="${a.y-ny}" x2="${z.x-nx}" y2="${z.y-ny}" stroke="url(#lg2)" stroke-width="3" opacity=".5" stroke-linecap="round"/>${rungs}</g>`;
+  });
+  svgHTML+=`</svg>`;
+
+  // Tokens HTML
+  let tokensHTML='';
+  for(let i=0;i<state.players.length;i++){
+    tokensHTML+=`<div id="token-${i}" class="token" style="display:none">${TOKENS[i]}</div>`;
+  }
+
+  // Dice faces
+  const dotSvg=n=>(FACE_DOTS[n]||[]).map(([cx,cy])=>`<circle cx="${cx}" cy="${cy}" r="9.5"/>`).join('');
+
+  // Player pills
+  const pills=state.players.map((p,i)=>{
+    const act=i===cp&&!fin,won=fin&&i===state.winner;
+    return `<div class="player-pill" style="background:${act?COLORS[i].bg+'15':won?COLORS[i].bg+'20':'rgba(255,255,255,.02)'};
+      border:2px solid ${act?COLORS[i].bg:won?'#FFD700':'transparent'}">
+      <div style="display:flex;align-items:center;gap:4px"><span style="font-size:12px">${TOKENS[i]}</span>
+      <span style="font-size:10px;font-weight:700;color:${COLORS[i].bg};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55px">${p.name}${p.id===socket?.id?'*':''}</span></div>
+      <div style="font-size:15px;font-weight:900;color:#fff;font-family:'Fira Code',monospace">${p.pos===0?'—':p.pos===TOTAL?'🏆':p.pos}</div>
+    </div>`;
+  }).join('');
+
+  const turnMsg=fin?`${state.players[state.winner]?.name} won!`:isMe?'Tap dice to roll!':`${state.players[cp]?.name}'s turn...`;
+  const turnLabel=fin?'GAME OVER':isMe?'YOUR TURN':'WAITING';
+
+  app.innerHTML=`
+  <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:8px 12px;
+    background:linear-gradient(165deg,#060610 0%,#0c0c22 40%,#081520 100%)">
+    <div style="width:100%;max-width:${bp}px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:800;background:linear-gradient(135deg,#FF2D55,#FF9500);-webkit-background-clip:text;-webkit-text-fill-color:transparent">SNAKE & LADDER</span>
+        <div style="display:flex;gap:5px">
+          <span style="padding:3px 8px;border-radius:5px;background:rgba(255,170,0,.08);border:1px solid rgba(255,170,0,.2);font-size:10px;font-weight:800;color:#FFAA00;font-family:'Fira Code',monospace;letter-spacing:2px">${roomCode}</span>
+          <button class="btn" style="padding:3px 8px;border-radius:5px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:rgba(255,255,255,.4);font-size:10px;font-weight:700" onclick="leaveGame()">Leave</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">${pills}</div>
+    </div>
+    <div class="board" style="width:${bp}px;height:${bp}px;border:2px solid ${fin?'#FFD70044':cpC.bg+'28'};
+      box-shadow:0 0 60px rgba(0,0,0,.6),0 0 25px ${fin?'#FFD70018':cpC.bg+'0c'};margin-bottom:8px">
+      ${boardHTML}${svgHTML}${tokensHTML}
+      <canvas id="particle-canvas" style="position:absolute;top:0;left:0;pointer-events:none;z-index:30"></canvas>
+      ${fin?`<div class="win-overlay">
+        <div style="font-size:56px;animation:bob 1s ease-in-out infinite">🏆</div>
+        <div style="font-size:22px;font-weight:900;margin-top:8px;color:${COLORS[state.winner]?.bg};font-family:'Playfair Display',serif;text-shadow:0 0 30px ${COLORS[state.winner]?.bg}88">${state.players[state.winner]?.name} Wins!</div>
+        ${state.host===socket?.id?'<button class="btn btn-a" style="margin-top:14px;padding:10px 28px" onclick="playAgain()">Play Again</button>':''}
+      </div>`:''}
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;padding:8px 14px;border-radius:10px;
+      background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05);width:100%;max-width:${bp}px">
+      <div class="dice-scene ${rolling||!isMe||fin?'disabled':''}" onclick="rollDice()">
+        <div class="dice-cube" style="transform:rotateX(${TARGET_ROT[diceVal]?.[0]||0}deg) rotateY(${TARGET_ROT[diceVal]?.[1]||0}deg)">
+          <div class="dice-face f1"><svg width="68" height="68" viewBox="0 0 100 100">${dotSvg(1)}</svg></div>
+          <div class="dice-face f2"><svg width="68" height="68" viewBox="0 0 100 100">${dotSvg(2)}</svg></div>
+          <div class="dice-face f3"><svg width="68" height="68" viewBox="0 0 100 100">${dotSvg(3)}</svg></div>
+          <div class="dice-face f4"><svg width="68" height="68" viewBox="0 0 100 100">${dotSvg(4)}</svg></div>
+          <div class="dice-face f5"><svg width="68" height="68" viewBox="0 0 100 100">${dotSvg(5)}</svg></div>
+          <div class="dice-face f6"><svg width="68" height="68" viewBox="0 0 100 100">${dotSvg(6)}</svg></div>
+        </div>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.3);margin-bottom:2px">${turnLabel}</div>
+        <div style="font-size:16px;font-weight:800;color:${cpC.bg}">${turnMsg}</div>
+        ${msg?`<div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:2px;animation:fadeIn .3s ease">${msg}</div>`:''}
+      </div>
+    </div>
+    ${state.log.length?`<div style="width:100%;max-width:${bp}px;max-height:80px;overflow-y:auto;padding:5px 8px;border-radius:6px;background:rgba(255,255,255,.015);border:1px solid rgba(255,255,255,.03)">
+      ${[...state.log].reverse().slice(0,8).map(l=>`<div style="font-size:9.5px;color:rgba(255,255,255,.3);padding:1px 0;font-family:'Fira Code',monospace">
+        <span style="color:${COLORS[l.p]?.bg}">${state.players[l.p]?.name}</span> 🎲${l.roll} → ${l.from}→${l.to}
+        ${l.event==='snake'?' 🐍':''}${l.event==='ladder'?' 🪜':''}${l.event==='overshoot'?' ✋':''}${l.to===TOTAL?' 🏆':''}
+      </div>`).join('')}
+    </div>`:''}
+  </div>`;
+
+  initParticleCanvas(bp,bp);
+  updateTokenDOM();
+}
+
+// Initial render
+resize();
+</script>
+</body>
+</html>
